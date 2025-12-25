@@ -157,19 +157,37 @@ EOF
 
 API_URL="https://${REGION}.power-iaas.cloud.ibm.com/pcloud/v1/cloud-instances/${CLOUD_INSTANCE_ID}/pvm-instances?version=${API_VERSION}"
 
-echo "  Calling PowerVS API..."
-set +e
-RESPONSE=$(curl -s -X POST "${API_URL}" \
-    -H "Authorization: Bearer ${IAM_TOKEN}" \
-    -H "CRN: ${PVS_CRN}" \
-    -H "Content-Type: application/json" \
-    -d "${PAYLOAD}" 2>&1)
-CURL_EXIT=$?
-set -e
+ATTEMPTS=0
+MAX_ATTEMPTS=3
 
-echo "  Curl exit code: $CURL_EXIT"
-
-SECONDARY_INSTANCE_ID=$(echo "$RESPONSE" | jq -r '.pvmInstanceID // .[0].pvmInstanceID // .pvmInstance.pvmInstanceID' 2>/dev/null || true)
+while [[ $ATTEMPTS -lt $MAX_ATTEMPTS && -z "$SECONDARY_INSTANCE_ID" ]]; do
+    ATTEMPTS=$((ATTEMPTS + 1))
+    
+    set +e
+    RESPONSE=$(curl -s -X POST "${API_URL}" \
+        -H "Authorization: Bearer ${IAM_TOKEN}" \
+        -H "CRN: ${PVS_CRN}" \
+        -H "Content-Type: application/json" \
+        -d "${PAYLOAD}" 2>&1)
+    CURL_CODE=$?
+    set -e
+    
+    if [[ $CURL_CODE -ne 0 ]]; then
+        sleep 5
+        continue
+    fi
+    
+    SECONDARY_INSTANCE_ID=$(echo "$RESPONSE" | jq -r '
+        .pvmInstanceID? //
+        (.[0].pvmInstanceID? // empty) //
+        .pvmInstance.pvmInstanceID? //
+        empty
+    ' 2>/dev/null || true)
+    
+    if [[ -z "$SECONDARY_INSTANCE_ID" || "$SECONDARY_INSTANCE_ID" == "null" ]]; then
+        sleep 5
+    fi
+done
 
 if [[ -z "$SECONDARY_INSTANCE_ID" || "$SECONDARY_INSTANCE_ID" == "null" ]]; then
     echo "ERROR: Failed to create LPAR"
@@ -317,3 +335,6 @@ echo "========================================================================"
 echo ""
 
 exit 0
+
+
+
