@@ -122,11 +122,19 @@ echo ""
 echo "→ Step 5: Creating empty LPAR..."
 
 # Get IAM token
+echo "  Getting IAM token..."
 IAM_RESPONSE=$(curl -s -X POST "https://iam.cloud.ibm.com/identity/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -d "grant_type=urn:ibm:params:oauth:grant-type:apikey" \
     -d "apikey=${API_KEY}")
 IAM_TOKEN=$(echo "$IAM_RESPONSE" | jq -r '.access_token')
+
+if [[ -z "$IAM_TOKEN" || "$IAM_TOKEN" == "null" ]]; then
+    echo "ERROR: Failed to get IAM token"
+    echo "Response: $IAM_RESPONSE"
+    exit 1
+fi
+echo "  IAM token retrieved"
 
 # Build payload
 PAYLOAD=$(cat <<EOF
@@ -149,6 +157,7 @@ EOF
 
 API_URL="https://${REGION}.power-iaas.cloud.ibm.com/pcloud/v1/cloud-instances/${CLOUD_INSTANCE_ID}/pvm-instances?version=${API_VERSION}"
 
+echo "  Calling PowerVS API..."
 RESPONSE=$(curl -s -X POST "${API_URL}" \
     -H "Authorization: Bearer ${IAM_TOKEN}" \
     -H "CRN: ${PVS_CRN}" \
@@ -156,6 +165,12 @@ RESPONSE=$(curl -s -X POST "${API_URL}" \
     -d "${PAYLOAD}")
 
 SECONDARY_INSTANCE_ID=$(echo "$RESPONSE" | jq -r '.pvmInstanceID // .[0].pvmInstanceID // .pvmInstance.pvmInstanceID')
+
+if [[ -z "$SECONDARY_INSTANCE_ID" || "$SECONDARY_INSTANCE_ID" == "null" ]]; then
+    echo "ERROR: Failed to create LPAR"
+    echo "Response: $RESPONSE"
+    exit 1
+fi
 echo "✓ LPAR created: ${SECONDARY_INSTANCE_ID}"
 echo ""
 
@@ -297,3 +312,4 @@ echo "========================================================================"
 echo ""
 
 exit 0
+
