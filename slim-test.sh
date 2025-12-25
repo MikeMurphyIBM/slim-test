@@ -5,7 +5,6 @@
 # Purpose: Minimal test script - clone volumes and provision LPAR
 ################################################################################
 
-# Timestamp logging
 timestamp() {
     while IFS= read -r line; do
         printf "[%s] %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$line"
@@ -35,6 +34,7 @@ readonly API_VERSION="2024-02-28"
 readonly PRIMARY_LPAR="murphy-prod"
 readonly PRIMARY_INSTANCE_ID="fea64706-1929-41c9-a761-68c43a8f29cc"
 readonly SECONDARY_LPAR="murphy-prod-clone17"
+readonly LPAR_NAME="${SECONDARY_LPAR}"
 
 readonly SUBNET_ID="9b9c414e-aa95-41aa-8ed2-40141e0c42fd"
 readonly PRIVATE_IP="192.168.10.17"
@@ -122,24 +122,31 @@ echo ""
 echo "→ Step 5: Creating empty LPAR..."
 
 # Get IAM token
-echo "  Getting IAM token..."
+echo "→ Retrieving IAM access token for API authentication..."
 IAM_RESPONSE=$(curl -s -X POST "https://iam.cloud.ibm.com/identity/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
+    -H "Accept: application/json" \
     -d "grant_type=urn:ibm:params:oauth:grant-type:apikey" \
     -d "apikey=${API_KEY}")
-IAM_TOKEN=$(echo "$IAM_RESPONSE" | jq -r '.access_token')
+
+IAM_TOKEN=$(echo "$IAM_RESPONSE" | jq -r '.access_token // empty' 2>/dev/null || true)
 
 if [[ -z "$IAM_TOKEN" || "$IAM_TOKEN" == "null" ]]; then
-    echo "ERROR: Failed to get IAM token"
+    echo "✗ ERROR: IAM token retrieval failed"
     echo "Response: $IAM_RESPONSE"
     exit 1
 fi
-echo "  IAM token retrieved"
 
-# Build payload
+export IAM_TOKEN
+echo "✓ IAM token retrieved successfully"
+echo ""
+
+echo "→ Building LPAR configuration payload..."
+
+# Construct JSON payload for LPAR creation
 PAYLOAD=$(cat <<EOF
 {
-  "serverName": "${SECONDARY_LPAR}",
+  "serverName": "${LPAR_NAME}",
   "processors": ${PROCESSORS},
   "memory": ${MEMORY_GB},
   "procType": "${PROC_TYPE}",
@@ -148,20 +155,34 @@ PAYLOAD=$(cat <<EOF
   "deploymentType": "${DEPLOYMENT_TYPE}",
   "keyPairName": "${KEYPAIR_NAME}",
   "networks": [
-    {"networkID": "${SUBNET_ID}", "ipAddress": "${PRIVATE_IP}"},
-    {"networkID": "${PUBLIC_SUBNET_ID}"}
+    {
+      "networkID": "${SUBNET_ID}",
+      "ipAddress": "${PRIVATE_IP}"
+    },
+    {
+      "networkID": "${PUBLIC_SUBNET_ID}"
+    }
   ]
 }
 EOF
 )
 
+echo "  Network Configuration:"
+echo "    - Private: ${SUBNET_ID} (IP: ${PRIVATE_IP})"
+echo "    - Public:  ${PUBLIC_SUBNET_ID} (${PUBLIC_SUBNET_NAME})"
+echo ""
+
 API_URL="https://${REGION}.power-iaas.cloud.ibm.com/pcloud/v1/cloud-instances/${CLOUD_INSTANCE_ID}/pvm-instances?version=${API_VERSION}"
 
+echo "→ Submitting LPAR creation request to PowerVS API..."
+
+# Retry logic for API resilience
 ATTEMPTS=0
 MAX_ATTEMPTS=3
 
 while [[ $ATTEMPTS -lt $MAX_ATTEMPTS && -z "$SECONDARY_INSTANCE_ID" ]]; do
     ATTEMPTS=$((ATTEMPTS + 1))
+    echo "  Attempt ${ATTEMPTS}/${MAX_ATTEMPTS}..."
     
     set +e
     RESPONSE=$(curl -s -X POST "${API_URL}" \
@@ -173,10 +194,12 @@ while [[ $ATTEMPTS -lt $MAX_ATTEMPTS && -z "$SECONDARY_INSTANCE_ID" ]]; do
     set -e
     
     if [[ $CURL_CODE -ne 0 ]]; then
+        echo "  ⚠ WARNING: curl failed with exit code ${CURL_CODE}"
         sleep 5
         continue
     fi
     
+    # Safe jq parsing - handles multiple response formats
     SECONDARY_INSTANCE_ID=$(echo "$RESPONSE" | jq -r '
         .pvmInstanceID? //
         (.[0].pvmInstanceID? // empty) //
@@ -185,15 +208,20 @@ while [[ $ATTEMPTS -lt $MAX_ATTEMPTS && -z "$SECONDARY_INSTANCE_ID" ]]; do
     ' 2>/dev/null || true)
     
     if [[ -z "$SECONDARY_INSTANCE_ID" || "$SECONDARY_INSTANCE_ID" == "null" ]]; then
+        echo "  ⚠ WARNING: Could not extract instance ID - retrying..."
         sleep 5
     fi
 done
 
 if [[ -z "$SECONDARY_INSTANCE_ID" || "$SECONDARY_INSTANCE_ID" == "null" ]]; then
-    echo "ERROR: Failed to create LPAR"
-    echo "Response: $RESPONSE"
+    echo "✗ FAILURE: Could not retrieve LPAR instance ID after ${MAX_ATTEMPTS} attempts"
+    echo ""
+    echo "API Response:"
+    echo "$RESPONSE"
     exit 1
 fi
+
+echo "✓ LPAR creation request accepted"
 echo "✓ LPAR created: ${SECONDARY_INSTANCE_ID}"
 echo ""
 
@@ -335,6 +363,4 @@ echo "========================================================================"
 echo ""
 
 exit 0
-
-
 
