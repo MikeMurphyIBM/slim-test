@@ -158,13 +158,18 @@ EOF
 API_URL="https://${REGION}.power-iaas.cloud.ibm.com/pcloud/v1/cloud-instances/${CLOUD_INSTANCE_ID}/pvm-instances?version=${API_VERSION}"
 
 echo "  Calling PowerVS API..."
+set +e
 RESPONSE=$(curl -s -X POST "${API_URL}" \
     -H "Authorization: Bearer ${IAM_TOKEN}" \
     -H "CRN: ${PVS_CRN}" \
     -H "Content-Type: application/json" \
-    -d "${PAYLOAD}")
+    -d "${PAYLOAD}" 2>&1)
+CURL_EXIT=$?
+set -e
 
-SECONDARY_INSTANCE_ID=$(echo "$RESPONSE" | jq -r '.pvmInstanceID // .[0].pvmInstanceID // .pvmInstance.pvmInstanceID')
+echo "  Curl exit code: $CURL_EXIT"
+
+SECONDARY_INSTANCE_ID=$(echo "$RESPONSE" | jq -r '.pvmInstanceID // .[0].pvmInstanceID // .pvmInstance.pvmInstanceID' 2>/dev/null || true)
 
 if [[ -z "$SECONDARY_INSTANCE_ID" || "$SECONDARY_INSTANCE_ID" == "null" ]]; then
     echo "ERROR: Failed to create LPAR"
@@ -312,4 +317,3 @@ echo "========================================================================"
 echo ""
 
 exit 0
-
