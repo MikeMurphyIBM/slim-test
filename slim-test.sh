@@ -32,10 +32,10 @@ readonly API_VERSION="2024-02-28"
 
 readonly PRIMARY_LPAR="murphy-prod"
 readonly PRIMARY_INSTANCE_ID="fea64706-1929-41c9-a761-68c43a8f29cc"
-readonly SECONDARY_LPAR="murphy-prod-clone22"
+readonly SECONDARY_LPAR="murphy-prod-clone34"
 
 readonly SUBNET_ID="9b9c414e-aa95-41aa-8ed2-40141e0c42fd"
-readonly PRIVATE_IP="192.168.10.22"
+readonly PRIVATE_IP="192.168.10.34"
 readonly PUBLIC_SUBNET_NAME="public-net-$(date +"%Y%m%d%H%M%S")"
 readonly KEYPAIR_NAME="murph2"
 
@@ -280,6 +280,8 @@ done
 echo "✓ LPAR is SHUTOFF"
 echo ""
 
+: << test
+
 ################################################################################
 # STEP 6: WAIT FOR CLONE & ATTACH VOLUMES
 ################################################################################
@@ -413,6 +415,8 @@ echo "========================================================================"
 echo " TEST COMPLETE"
 echo "========================================================================"
 echo ""
+
+test
 
 exit 0
 
