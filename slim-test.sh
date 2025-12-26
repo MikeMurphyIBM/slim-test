@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ################################################################################
-# SLIM-TEST: Bare-bones IBMi LPAR Clone & Provision
+# SLIM-TEST: Bare-bones IBMi LPAR Clone & Provision v8
 ################################################################################
 
 timestamp() {
@@ -32,10 +32,10 @@ readonly API_VERSION="2024-02-28"
 
 readonly PRIMARY_LPAR="murphy-prod"
 readonly PRIMARY_INSTANCE_ID="fea64706-1929-41c9-a761-68c43a8f29cc"
-readonly SECONDARY_LPAR="murphy-prod-clone17"
+readonly SECONDARY_LPAR="murphy-prod-clone22"
 
 readonly SUBNET_ID="9b9c414e-aa95-41aa-8ed2-40141e0c42fd"
-readonly PRIVATE_IP="192.168.10.17"
+readonly PRIVATE_IP="192.168.10.22"
 readonly PUBLIC_SUBNET_NAME="public-net-$(date +"%Y%m%d%H%M%S")"
 readonly KEYPAIR_NAME="murph2"
 
@@ -337,18 +337,35 @@ echo ""
 if [[ -n "$CLONE_DATA_IDS" ]]; then
     echo "→ Attaching data volumes..."
     IFS=',' read -ra DATA_VOL_ARRAY <<<"$CLONE_DATA_IDS"
+    VOL_COUNT=${#DATA_VOL_ARRAY[@]}
+    VOL_NUM=1
+    
     for DATA_VOL_ID in "${DATA_VOL_ARRAY[@]}"; do
+        echo "  Attaching data volume ${VOL_NUM}/${VOL_COUNT}: ${DATA_VOL_ID}"
+        
+        set +e
         ibmcloud pi instance volume attach "$LPAR_INSTANCE_ID" --volumes "$DATA_VOL_ID" >/dev/null 2>&1
+        ATTACH_RC=$?
+        set -e
+        
+        if [[ $ATTACH_RC -ne 0 ]]; then
+            echo "  WARNING: Attachment command failed with exit code $ATTACH_RC"
+        fi
+        
         sleep 30
+        
         while true; do
             VOL_LIST=$(ibmcloud pi instance volume list "$LPAR_INSTANCE_ID" --json 2>/dev/null | jq -r '(.volumes // [])[]?.volumeID')
             if grep -qx "$DATA_VOL_ID" <<<"$VOL_LIST"; then
+                echo "  ✓ Data volume ${VOL_NUM}/${VOL_COUNT} attached"
                 break
             fi
             sleep 30
         done
+        
+        ((VOL_NUM++))
     done
-    echo "✓ Data volumes attached"
+    echo "✓ All data volumes attached"
     echo ""
 fi
 
@@ -398,3 +415,4 @@ echo "========================================================================"
 echo ""
 
 exit 0
+
